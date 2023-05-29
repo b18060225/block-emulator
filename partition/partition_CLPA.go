@@ -18,14 +18,14 @@ type CLPAState struct {
 	Edges2Shard       []int          // Shard 相邻接的边数，对应论文中的 total weight of edges associated with label k
 	VertexsNumInShard []int          // Shard 内节点的数目
 	WeightPenalty     float64        // 权重惩罚，对应论文中的 beta
-	MinEdges2Shard    int            // 最少的 Shard 邻接边数，最小的 total weight of edges associated with label k
-	MaxIterations     int            // 最大迭代次数，constraint，对应论文中的\tau
+	MinEdges2Shard    int            // 最少的 Shard 邻接边数，最小的 total weight of edges associated with label k ,用于约束Shard之间的边数不得小于该值
+	MaxIterations     int            // 最大迭代次数，constraint，对应论文中的\tau  , 用于控制算法的收敛性和执行时间
 	CrossShardEdgeNum int            // 跨分片边的总数
 	ShardNum          int            // 分片数目
 	GraphHash         []byte
 }
 
-func (graph *CLPAState) Hash() []byte {
+func (graph *CLPAState) Hash() []byte {		//计算CLPAState对象的哈希值
 	hash := sha256.Sum256(graph.Encode())
 	return hash[:]
 }
@@ -99,11 +99,11 @@ func (cs *CLPAState) PrintCLPA() {
 
 // 根据当前划分，计算 Wk，即 Edges2Shard
 func (cs *CLPAState) ComputeEdges2Shard() {
-	cs.Edges2Shard = make([]int, cs.ShardNum)
-	interEdge := make([]int, cs.ShardNum)
-	cs.MinEdges2Shard = 0x7fffffff // INT_MAX
+	cs.Edges2Shard = make([]int, cs.ShardNum) //存储每个Shard相邻接的边数
+	interEdge := make([]int, cs.ShardNum)	 //内部边数
+	cs.MinEdges2Shard = 0x7fffffff // INT_MAX  初始化为最大整数值
 
-	for idx := 0; idx < cs.ShardNum; idx++ {
+	for idx := 0; idx < cs.ShardNum; idx++ {  //初始化
 		cs.Edges2Shard[idx] = 0
 		interEdge[idx] = 0
 	}
@@ -128,7 +128,7 @@ func (cs *CLPAState) ComputeEdges2Shard() {
 	for _, val := range cs.Edges2Shard {
 		cs.CrossShardEdgeNum += val
 	}
-	cs.CrossShardEdgeNum /= 2
+	cs.CrossShardEdgeNum /= 2  //每条边都会被计算两次
 
 	for idx := 0; idx < cs.ShardNum; idx++ {
 		cs.Edges2Shard[idx] += interEdge[idx] / 2
@@ -146,7 +146,7 @@ func (cs *CLPAState) changeShardRecompute(v Vertex, old int) {
 	new := cs.PartitionMap[v]
 	for _, u := range cs.NetGraph.EdgeSet[v] {
 		neighborShard := cs.PartitionMap[u]
-		if neighborShard != new && neighborShard != old {
+		if neighborShard != new && neighborShard != old { //邻接节点u的分片归属与新的分片归属new和old不同
 			cs.Edges2Shard[new]++
 			cs.Edges2Shard[old]--
 		} else if neighborShard == new {
@@ -168,9 +168,9 @@ func (cs *CLPAState) changeShardRecompute(v Vertex, old int) {
 
 // 设置参数
 func (cs *CLPAState) Init_CLPAState(wp float64, mIter, sn int) {
-	cs.WeightPenalty = wp
-	cs.MaxIterations = mIter
-	cs.ShardNum = sn
+	cs.WeightPenalty = wp	//重惩罚系数
+	cs.MaxIterations = mIter  //最大迭代系数
+	cs.ShardNum = sn	
 	cs.VertexsNumInShard = make([]int, cs.ShardNum)
 	cs.PartitionMap = make(map[Vertex]int)
 }
@@ -178,10 +178,10 @@ func (cs *CLPAState) Init_CLPAState(wp float64, mIter, sn int) {
 // 初始化划分，使用节点地址的尾数划分，应该保证初始化的时候不会出现空分片
 func (cs *CLPAState) Init_Partition() {
 	// 设置划分默认参数
-	cs.VertexsNumInShard = make([]int, cs.ShardNum)
+	cs.VertexsNumInShard = make([]int, cs.ShardNum)	//记录各个分片中的节点数量
 	cs.PartitionMap = make(map[Vertex]int)
 	for v := range cs.NetGraph.VertexSet {
-		var va = v.Addr[len(v.Addr)-8:]
+		var va = v.Addr[len(v.Addr)-8:]	//获取地址尾数
 		num, err := strconv.ParseInt(va, 16, 64)
 		if err != nil {
 			log.Panic()
@@ -228,10 +228,10 @@ func (cs *CLPAState) getShard_score(v Vertex, uShard int) float64 {
 
 // CLPA 划分算法
 func (cs *CLPAState) CLPA_Partition() (map[string]uint64, int) {
-	cs.ComputeEdges2Shard()
+	cs.ComputeEdges2Shard()   //计算当前划分的边缘数和最小边缘数
 	fmt.Println(cs.CrossShardEdgeNum)
 	res := make(map[string]uint64)
-	updateTreshold := make(map[string]int)
+	updateTreshold := make(map[string]int)		//用于控制节点的更新次数
 	for iter := 0; iter < cs.MaxIterations; iter += 1 { // 第一层循环控制算法次数，constraint
 		for v := range cs.NetGraph.VertexSet {
 			if updateTreshold[v.Addr] >= 50 {
@@ -272,6 +272,6 @@ func (cs *CLPAState) CLPA_Partition() (map[string]uint64, int) {
 	return res, cs.CrossShardEdgeNum
 }
 
-func (cs *CLPAState) EraseEdges() {
+func (cs *CLPAState) EraseEdges() {	//清空图的边集
 	cs.NetGraph.EdgeSet = make(map[Vertex][]Vertex)
 }
